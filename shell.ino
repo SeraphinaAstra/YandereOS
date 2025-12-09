@@ -1,7 +1,5 @@
 /*
   Shell Application - Full Featured with Directory Support
-  
-  Now uses kernel syscalls for EVERYTHING including directory operations!
 */
 
 #include "kernel.h"
@@ -168,7 +166,11 @@ void processCommand(const char* cmdLine, char* currentDir) {
   } else if (strcmp(cmd, "uptime") == 0) {
     cmdUptime();
   } else if (strcmp(cmd, "clear") == 0) {
-    cmdClear();
+  cmdClear();
+  } else if (strcmp(cmd, "edit") == 0) {
+    cmdEdit(args, currentDir);
+  }  else if (strcmp(cmd, "hwinfo") == 0) {
+    cmdHwinfo();
   } else {
     Serial.print(F("Unknown command: "));
     Serial.println(cmd);
@@ -182,6 +184,7 @@ void cmdHelp() {
   Serial.println(F("  cd <path>           - Change directory"));
   Serial.println(F("  pwd                 - Print working directory"));
   Serial.println(F("  cat <file>          - Display file"));
+  Serial.println(F("  edit <file>         - Edit text file"));
   Serial.println(F("  grep <pattern> <file> - Search in file"));
   Serial.println(F("  rm <file>           - Remove file"));
   Serial.println(F("  mv <src> <dst>      - Move/rename file"));
@@ -195,6 +198,7 @@ void cmdHelp() {
   Serial.println(F("\nSystem Operations:"));
   Serial.println(F("  ps                  - List tasks"));
   Serial.println(F("  meminfo             - Memory info"));
+  Serial.println(F("  hwinfo              - Hardware Info"));
   Serial.println(F("  compact             - Compact memory"));
   Serial.println(F("  uptime              - System uptime"));
   Serial.println(F("  clear               - Clear screen"));
@@ -440,7 +444,7 @@ void cmdClear() {
     Serial.println();
   }
   Serial.println(F("================================="));
-  Serial.println(F("  ArduinoOS Shell"));
+  Serial.println(F("  YandereOS Shell"));
   Serial.println(F("=================================\n"));
 }
 
@@ -697,6 +701,405 @@ void cmdCp(const char* args, const char* currentDir) {
   OS::close(fdDst);
   
   Serial.println(F("File copied"));
+}
+
+/*
+  Ed-style Text Editor
+  Add this function with the other cmd* functions in your shell
+*/
+
+/*
+  Ed-style Text Editor
+  Add this function with the other cmd* functions in your shell
+*/
+
+void cmdEdit(const char* filename, const char* currentDir) {
+  if (filename[0] == '\0') {
+    Serial.println(F("Usage: edit <filename>"));
+    return;
+  }
+  
+  // Allocate editor buffer on heap instead of stack
+  #define MAX_LINES 200
+  char (*lines)[128] = (char (*)[128])OS::malloc(MAX_LINES * 128);
+  if (!lines) {
+    Serial.println(F("Error: Out of memory"));
+    return;
+  }
+  
+  int lineCount = 0;
+  bool modified = false;
+  
+  char filepath[128];
+  resolvePath(filename, currentDir, filepath, sizeof(filepath));
+  
+  // Load file
+  int fd = OS::open(filepath, false);
+  if (fd >= 0) {
+    char currentLine[128];
+    int linePos = 0;
+    char buffer[128];
+    int bytesRead;
+    
+    while ((bytesRead = OS::read(fd, buffer, sizeof(buffer) - 1)) > 0) {
+      for (int i = 0; i < bytesRead; i++) {
+        char c = buffer[i];
+        if (c == '\n' || c == '\r') {
+          if (linePos > 0 || c == '\n') {
+            if (lineCount >= MAX_LINES) {
+              Serial.println(F("Warning: File too large, truncated"));
+              break;
+            }
+            currentLine[linePos] = '\0';
+            strcpy(lines[lineCount++], currentLine);
+            linePos = 0;
+          }
+        } else if (linePos < 127) {
+          currentLine[linePos++] = c;
+        }
+      }
+      OS::yield();
+    }
+    
+    if (linePos > 0 && lineCount < MAX_LINES) {
+      currentLine[linePos] = '\0';
+      strcpy(lines[lineCount++], currentLine);
+    }
+    
+    OS::close(fd);
+    Serial.print(lineCount);
+    Serial.println(F(" lines loaded"));
+  } else {
+    Serial.println(F("New file"));
+  }
+  
+  Serial.println(F("\nEd-style line editor. Type 'h' for help.\n"));
+  
+  // Command loop
+  char cmd[128];
+  while (true) {
+    Serial.print(F(": "));
+    
+    // Read command
+    int pos = 0;
+    cmd[0] = '\0';
+    while (true) {
+      while (Serial.available() > 0) {
+        char c = Serial.read();
+        if (c == '\n' || c == '\r') {
+          if (pos > 0) {
+            Serial.println();
+            cmd[pos] = '\0';
+            goto process_command;
+          }
+        } else if (c == 127 || c == 8) {
+          if (pos > 0) {
+            pos--;
+            Serial.write(8);
+            Serial.write(' ');
+            Serial.write(8);
+          }
+        } else if (pos < 127) {
+          cmd[pos++] = c;
+          Serial.write(c);
+        }
+      }
+      OS::yield();
+    }
+    
+process_command:
+    if (strlen(cmd) == 0) continue;
+    
+    char cmdChar = cmd[0];
+    
+    // Help
+    if (strcmp(cmd, "h") == 0) {
+      Serial.println(F("\nEditor Commands:"));
+      Serial.println(F("  p           - Print all lines"));
+      Serial.println(F("  p N         - Print line N"));
+      Serial.println(F("  p N,M       - Print lines N to M"));
+      Serial.println(F("  a           - Append lines (end with '.')"));
+      Serial.println(F("  i N         - Insert before line N (end with '.')"));
+      Serial.println(F("  d N         - Delete line N"));
+      Serial.println(F("  d N,M       - Delete lines N to M"));
+      Serial.println(F("  c N <text>  - Change line N to <text>"));
+      Serial.println(F("  w           - Write/save file"));
+      Serial.println(F("  q           - Quit (warns if unsaved)"));
+      Serial.println(F("  q!          - Quit without saving"));
+      Serial.println(F("  h           - Show this help\n"));
+      
+    // Print
+    } else if (strcmp(cmd, "p") == 0) {
+      Serial.println();
+      for (int i = 0; i < lineCount; i++) {
+        Serial.print(i + 1);
+        Serial.print(F(": "));
+        Serial.println(lines[i]);
+      }
+      Serial.println();
+      
+    } else if (cmdChar == 'p' && strlen(cmd) > 1) {
+      char* args = cmd + 2;
+      while (*args == ' ') args++;
+      
+      char* comma = strchr(args, ',');
+      if (comma) {
+        *comma = '\0';
+        int start = atoi(args);
+        int end = atoi(comma + 1);
+        if (start < 1) start = 1;
+        if (end > lineCount) end = lineCount;
+        Serial.println();
+        for (int i = start - 1; i < end; i++) {
+          Serial.print(i + 1);
+          Serial.print(F(": "));
+          Serial.println(lines[i]);
+        }
+        Serial.println();
+      } else {
+        int lineNum = atoi(args);
+        if (lineNum >= 1 && lineNum <= lineCount) {
+          Serial.println();
+          Serial.print(lineNum);
+          Serial.print(F(": "));
+          Serial.println(lines[lineNum - 1]);
+          Serial.println();
+        }
+      }
+      
+    // Append
+    } else if (strcmp(cmd, "a") == 0) {
+      Serial.println(F("Append mode (type '.' alone to end):"));
+      char line[128];
+      while (true) {
+        int lpos = 0;
+        line[0] = '\0';
+        while (true) {
+          while (Serial.available() > 0) {
+            char c = Serial.read();
+            if (c == '\n' || c == '\r') {
+              if (lpos > 0) {
+                Serial.println();
+                line[lpos] = '\0';
+                goto append_line;
+              }
+            } else if (c == 127 || c == 8) {
+              if (lpos > 0) {
+                lpos--;
+                Serial.write(8);
+                Serial.write(' ');
+                Serial.write(8);
+              }
+            } else if (lpos < 127) {
+              line[lpos++] = c;
+              Serial.write(c);
+            }
+          }
+          OS::yield();
+        }
+append_line:
+        if (strcmp(line, ".") == 0) break;
+        if (lineCount >= MAX_LINES) {
+          Serial.println(F("Error: Editor buffer full"));
+          break;
+        }
+        strcpy(lines[lineCount++], line);
+        modified = true;
+      }
+      
+    // Insert
+    } else if (cmdChar == 'i' && strlen(cmd) > 1) {
+      int beforeLine = atoi(cmd + 2);
+      if (beforeLine < 1 || beforeLine > lineCount + 1) {
+        Serial.println(F("Error: Invalid line number"));
+      } else {
+        Serial.println(F("Insert mode (type '.' alone to end):"));
+        
+        // Allocate temp buffer for new lines
+        char (*newLines)[128] = (char (*)[128])OS::malloc(MAX_LINES * 128);
+        if (!newLines) {
+          Serial.println(F("Error: Out of memory"));
+        } else {
+          int newCount = 0;
+          
+          char line[128];
+          while (true) {
+            int lpos = 0;
+            line[0] = '\0';
+            while (true) {
+              while (Serial.available() > 0) {
+                char c = Serial.read();
+                if (c == '\n' || c == '\r') {
+                  if (lpos > 0) {
+                    Serial.println();
+                    line[lpos] = '\0';
+                    goto insert_line;
+                  }
+                } else if (c == 127 || c == 8) {
+                  if (lpos > 0) {
+                    lpos--;
+                    Serial.write(8);
+                    Serial.write(' ');
+                    Serial.write(8);
+                  }
+                } else if (lpos < 127) {
+                  line[lpos++] = c;
+                  Serial.write(c);
+                }
+              }
+              OS::yield();
+            }
+insert_line:
+            if (strcmp(line, ".") == 0) break;
+            if (newCount >= MAX_LINES) {
+              Serial.println(F("Error: Too many lines"));
+              break;
+            }
+            strcpy(newLines[newCount++], line);
+          }
+          
+          if (newCount > 0 && lineCount + newCount <= MAX_LINES) {
+            for (int i = lineCount - 1; i >= beforeLine - 1; i--) {
+              strcpy(lines[i + newCount], lines[i]);
+            }
+            for (int i = 0; i < newCount; i++) {
+              strcpy(lines[beforeLine - 1 + i], newLines[i]);
+            }
+            lineCount += newCount;
+            modified = true;
+          }
+          
+          OS::free(newLines);
+        }
+      }
+      
+    // Delete
+    } else if (cmdChar == 'd' && strlen(cmd) > 1) {
+      char* args = cmd + 2;
+      while (*args == ' ') args++;
+      
+      char* comma = strchr(args, ',');
+      int start, end;
+      if (comma) {
+        *comma = '\0';
+        start = atoi(args);
+        end = atoi(comma + 1);
+      } else {
+        start = end = atoi(args);
+      }
+      
+      if (start < 1 || start > lineCount) {
+        Serial.println(F("Error: Invalid line number"));
+      } else {
+        if (end < start) end = start;
+        if (end > lineCount) end = lineCount;
+        
+        int deleteCount = end - start + 1;
+        for (int i = end; i < lineCount; i++) {
+          strcpy(lines[i - deleteCount], lines[i]);
+        }
+        lineCount -= deleteCount;
+        modified = true;
+        
+        Serial.print(deleteCount);
+        Serial.println(F(" line(s) deleted"));
+      }
+      
+    // Change
+    } else if (cmdChar == 'c' && strlen(cmd) > 1) {
+      char* args = cmd + 2;
+      while (*args == ' ') args++;
+      
+      char* space = strchr(args, ' ');
+      if (space) {
+        *space = '\0';
+        int lineNum = atoi(args);
+        if (lineNum >= 1 && lineNum <= lineCount) {
+          strncpy(lines[lineNum - 1], space + 1, 127);
+          lines[lineNum - 1][127] = '\0';
+          modified = true;
+          Serial.println(F("Line changed"));
+        } else {
+          Serial.println(F("Error: Invalid line number"));
+        }
+      } else {
+        Serial.println(F("Usage: c <line> <text>"));
+      }
+      
+    // Write
+    } else if (strcmp(cmd, "w") == 0) {
+      OS::remove(filepath);
+      fd = OS::open(filepath, true);
+      if (fd >= 0) {
+        for (int i = 0; i < lineCount; i++) {
+          OS::write(fd, lines[i], strlen(lines[i]));
+          OS::write(fd, "\n", 1);
+          OS::yield();
+        }
+        OS::close(fd);
+        modified = false;
+        Serial.print(lineCount);
+        Serial.println(F(" lines written"));
+      } else {
+        Serial.println(F("Error: Cannot write file"));
+      }
+      
+    // Quit
+    } else if (strcmp(cmd, "q") == 0) {
+      if (modified) {
+        Serial.println(F("Warning: Unsaved changes! Use 'q!' to quit without saving"));
+      } else {
+        break;
+      }
+      
+    } else if (strcmp(cmd, "q!") == 0) {
+      break;
+      
+    } else {
+      Serial.println(F("Unknown command. Type 'h' for help"));
+    }
+    
+    OS::yield();
+  }
+  
+  OS::free(lines);
+  Serial.println(F("Editor closed"));
+}
+
+void cmdHwinfo() {
+  Serial.println(F("\n=== Hardware Info ==="));
+  
+  #ifdef ARDUINO_GIGA
+    Serial.println(F("Board: Arduino Giga R1 WiFi"));
+    Serial.println(F("MCU: STM32H747XI (Cortex-M7 + M4)"));
+    Serial.println(F("RAM: 1 MB"));
+    Serial.println(F("Flash: 2 MB"));
+  #elif defined(ARDUINO_ARCH_RP2040)
+    Serial.println(F("Board: Raspberry Pi Pico"));
+    Serial.println(F("MCU: RP2040 (Dual Cortex-M0+)"));
+    Serial.println(F("RAM: 264 KB"));
+    Serial.println(F("Flash: 2 MB"));
+  #elif defined(ARDUINO_AVR_MEGA2560)
+    Serial.println(F("Board: Arduino Mega 2560"));
+    Serial.println(F("MCU: ATmega2560"));
+    Serial.println(F("RAM: 8 KB"));
+    Serial.println(F("Flash: 256 KB"));
+  #else
+    Serial.println(F("Board: Unknown/Generic Arduino"));
+  #endif
+  
+  Serial.print(F("Clock: "));
+  Serial.print(F_CPU / 1000000);
+  Serial.println(F(" MHz"));
+  
+  Serial.print(F("Kernel heap: "));
+  Serial.print(KERNEL_HEAP_SIZE);
+  Serial.println(F(" bytes"));
+  
+  Serial.print(F("SD CS Pin: "));
+  Serial.println(SD_CS_PIN);
+  
+  Serial.println();
 }
 
 // ============================================================================

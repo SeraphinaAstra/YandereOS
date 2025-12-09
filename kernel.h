@@ -1,5 +1,5 @@
 /*
-  ArduinoOS Kernel - Enhanced Version
+  YandereOS Kernel - V3.5
   A functional kernel for Arduino Giga R1 WiFi
   
   Features:
@@ -91,7 +91,7 @@ enum SyscallType {
   // System operations
   SYS_GET_TIME,
   SYS_PRINT,
-  SYS_DEBUG
+  SYS_DBG_PRINT
 };
 
 // System call result codes
@@ -118,11 +118,32 @@ enum SyscallResult {
 // Watchdog configuration
 #define WATCHDOG_TIMEOUT_MS 5000  // 5 seconds without yield = force reschedule
 
-// Heap size
+// Heap size based on board
 #ifdef ARDUINO_GIGA
-  #define KERNEL_HEAP_SIZE (512 * 1024)  // 512KB for Giga R1
+  #define KERNEL_HEAP_SIZE (512 * 1024)  // 512KB for Giga R1 (STM32H747, 1MB RAM)
+#elif defined(ARDUINO_ARCH_RP2040)
+  #define KERNEL_HEAP_SIZE (128 * 1024)  // 128KB for RP2040 (264KB total RAM)
+#elif defined(ARDUINO_AVR_MEGA2560)
+  #define KERNEL_HEAP_SIZE (4 * 1024)    // 4KB for Mega (8KB total RAM)
+#elif defined(ARDUINO_ARCH_SAMD)
+  #define KERNEL_HEAP_SIZE (16 * 1024)   // 16KB for SAMD21 (32KB RAM)
+#elif defined(ARDUINO_ARCH_ESP32)
+  #define KERNEL_HEAP_SIZE (256 * 1024)  // 256KB for ESP32 (320KB+ RAM)
+#elif defined(ARDUINO_ARCH_ESP8266)
+  #define KERNEL_HEAP_SIZE (32 * 1024)   // 32KB for ESP8266 (80KB RAM)
 #else
-  #define KERNEL_HEAP_SIZE (4 * 1024)    // 4KB for testing
+  #define KERNEL_HEAP_SIZE (2 * 1024)    // 2KB conservative default (Uno-class)
+#endif
+
+// SD Card Configuration
+#ifdef ARDUINO_ARCH_RP2040
+  #define SD_CS_PIN 17  // RP2040 Pico default
+#elif defined(ARDUINO_AVR_MEGA2560)
+  #define SD_CS_PIN 53  // Arduino Mega default
+#elif defined(ARDUINO_GIGA)
+  #define SD_CS_PIN 10  // Giga R1 WiFi default
+#else
+  #define SD_CS_PIN 10  // Generic Arduino default (Uno, etc.)
 #endif
 
 // ============================================================================
@@ -396,9 +417,6 @@ public:
   static int getCurrentTaskId();
   static void printTaskList();
   static void printMemoryInfo();
-  static Task* getTaskInfo(int taskId) {
-    return getTask(taskId);
-  }
 };
 
 // ============================================================================

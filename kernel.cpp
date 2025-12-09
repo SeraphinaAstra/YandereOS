@@ -1,5 +1,5 @@
 /*
-  ArduinoOS Kernel Implementation - Enhanced Version
+  YandereOS Kernel Implementation - V3.5
   Adds: Watchdog timer, IPC, DDI, Stack traces, Fixed compaction
 */
 
@@ -39,7 +39,7 @@ bool Kernel::init() {
   Serial.begin(9600);
   while (!Serial && millis() < 3000);
   
-  Serial.println(F("\n=== ArduinoOS Kernel v3.0 Enhanced ==="));
+  Serial.println(F("\n=== YandereOS Kernel v3.5 ==="));
   Serial.println(F("Features: Watchdog, IPC, DDI, Stack Traces"));
   Serial.println(F("Initializing..."));
   
@@ -80,7 +80,7 @@ bool Kernel::init() {
   
   // Initialize SD card
   Serial.print(F("Mounting SD card... "));
-  if (SD.begin(53)) {
+  if (SD.begin(SD_CS_PIN)) {
     sdInitialized = true;
     Serial.println(F("OK"));
   } else {
